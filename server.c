@@ -9,11 +9,14 @@
 #include <unistd.h>
 #include <strings.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <pthread.h>
 
 /* Network */
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 
 /* Others */
@@ -21,52 +24,235 @@
 
 #define BUF_SIZE 128
 
-void header(int handler, int status)
+extern int errno;
+pthread_mutex_t lock_acc, lock_proc;
+
+//for request queue
+typedef struct node {
+    int handler;
+    struct node *next;
+} Node;
+typedef struct queue {
+    int count;
+    Node *head;
+    Node *tail;
+} Queue;
+Queue reqQueue;
+
+char* root;
+
+void pushRegQueue(int handler)
 {
-    // char* output = malloc(sizeof(char));
-//    output[0] = '\0';
+    Node *node = malloc(sizeof(Node));
+    node->handler = handler;
+    node->next = NULL;
+    if( reqQueue.head == NULL && reqQueue.tail ==NULL) {
+        reqQueue.head = reqQueue.tail = node;
+    } else {
+        (reqQueue.tail)->next = node;
+        reqQueue.tail = node;
+    }
+    reqQueue.count++;
+}
+
+int popRegQueue()
+{
+    if(reqQueue.head == NULL) return -1;
+    int handler = (reqQueue.head)->handler;
+
+    Node *temp = reqQueue.head;
+    if(reqQueue.count!=1) {
+        reqQueue.head = (reqQueue.head)->next;
+    } else {
+        reqQueue.head = NULL;
+        reqQueue.tail = NULL;
+    }
+    free(temp);
+    reqQueue.count--;
+    return handler;
+}
+
+char* header(int status)
+{
     char header[BUF_SIZE] = {0};
     int len = 0;
-    if (status == 0) {
-        len = sprintf(header, "HTTP/1.0 200 OK\r\n\r\n");
-    } else if (status == 1) {
-        len = sprintf(header, "HTTP/1.0 403 Forbidden\r\n\r\n");
-    } else {
-        len = sprintf(header, "HTTP/1.0 404 Not Found\r\n\r\n");
+    if (status == OK) {
+        len = sprintf(header, "HTTP/1.x %d OK\r\n", status_code[OK]);
+    } else if (status == BAD_REQUEST) {
+        len = sprintf(header, "HTTP/1.x %d BAD_REQUEST\r\n", status_code[OK]);
+    } else if (status == NOT_FOUND) {
+        len = sprintf(header, "HTTP/1.x %d NOT_FOUND\r\n", status_code[NOT_FOUND]);
+    } else if (status == METHOD_NOT_ALLOWED) {
+        len = sprintf(header, "HTTP/1.x %d METHOD_NOT_ALLOWED\r\n", status_code[METHOD_NOT_ALLOWED]);
+    } else if (status == UNSUPPORT_MEDIA_TYPE) {
+        len = sprintf(header, "HTTP/1.x %d UNSUPPORT_MEDIA_TYPE\r\n", status_code[UNSUPPORT_MEDIA_TYPE]);
     }
-    send(handler, header, strlen(header), 0);
+    char* output = malloc(sizeof(char)*(len+1));
+    output[0] = '\0';
+    sprintf(output, "%s", header);
+
+    //send(handler, output, strlen(output), 0);
+    return output;
+}
+
+char *get_extn(char *filename)
+{
+    char *dot = strrchr(filename, '.');
+    if(!dot || dot == filename) return "dir";
+    return dot + 1;
+}
+void resolve_failed(int handler, char *output)
+{
+    char buffer[BUF_SIZE] = "Content-Type:\r\nServer: httpserver/1.x\r\n\r\n";
+    int len = strlen(output) + strlen(buffer);
+    char *output_temp = malloc(sizeof(char)*(strlen(output)+1));
+    strcpy(output_temp, output);
+
+    output = (char *)realloc(output, sizeof(char)*(len+1));
+    sprintf(output, "%s%s", output_temp,buffer);
+    //printf("%s",output);
+    send(handler, output, strlen(output)+1, 0);
+}
+void checkCreateDir(char* name)
+{
+    struct stat st = {0};
+
+    if (stat(name, &st) == -1) {
+        mkdir(name, 0750);
+        //printf("created the directory %s\n",name);
+    }
 }
 
 void resolve(int handler)
 {
-    //int size;
     char buf[BUF_SIZE];
     char *method;
-    char *filename;
+    char *filename_temp, *filename;
+    char *output;
 
     recv(handler, buf, BUF_SIZE, 0);
     method = strtok(buf, " ");
-    if (strcmp(method, "GET") != 0) return;
+    if (strcmp(method, "GET") != 0) {
+        output = header(METHOD_NOT_ALLOWED);
+        resolve_failed(handler, output);
+        return;
+    }
+    filename_temp = strtok(NULL, " ");
+    filename = malloc(sizeof(char)*(strlen(root)+strlen(filename_temp)+1));
 
-    filename = strtok(NULL, " ");
-    if (filename[0] == '/') filename++;
+    if (filename_temp[0] == '/') ;//filename++;
+    else {
+        output = header(BAD_REQUEST);
+        resolve_failed(handler, output);
+        free(filename);
+        return;
+    }
+    //filename = (char *)realloc(filename, sizeof(char)*(strlen(root)+strlen(filename)+1));
+    sprintf(filename,"%s%s",root,filename_temp);
+    //printf("%s\n",filename);
 
     if (access(filename, F_OK) != 0) {
-        header(handler, 2);
+        output = header(NOT_FOUND);
+        resolve_failed(handler, output);
+        free(filename);
         return;
-    } else if (access(filename, R_OK) != 0) {
-        header(handler, 1);
+    }
+    char *extn = get_extn(filename);
+    int i=0;
+    while(extensions[i].ext != 0 && strcmp(extensions[i].ext, extn)!=0)
+        ++i;
+    if(extensions[i].ext == 0 && strcmp(extn, "dir")!=0) {
+        //file extension is not supported and the requested path is not a directory
+        output = header(UNSUPPORT_MEDIA_TYPE);
+        resolve_failed(handler, output);
+        free(filename);
         return;
-    } else {
-        header(handler, 0);
     }
 
-    FILE *file = fopen(filename, "r");
-    while(fgets(buf, BUF_SIZE, file)) {
-        send(handler, buf, strlen(buf), 0);
-        memset(buf, 0, BUF_SIZE);
+    output = header(OK);
+    //checkCreateDir("output");
+    if(strcmp(extn, "dir")!=0) {
+        //requested path is a valid file
+        char buffer[BUF_SIZE];
+        int len = sprintf(buffer, "Content-Type: %s\r\nServer: httpserver/1.x\r\n\r\n", extensions[i].mime_type);
+        len += strlen(output);
+        char *output_temp = (char *)realloc(output, sizeof(char)*(len+128+1));
+        output = output_temp;
+        strcat(output, buffer);
+
+        strcpy(buffer, "output/");
+        char *temp = malloc(sizeof(char)*(strlen(buffer)+strlen(filename)+1));
+        char *path = malloc(sizeof(char)*(strlen(buffer)+strlen(filename)+1));
+        sprintf(path,"%s%s", buffer, filename);
+        //printf("%s\n",path);
+
+        char *delim = "/";
+
+        char *pch = strstr(path, delim);
+        while(pch!=NULL) {
+            memcpy(temp,path,pch-path+1);
+            temp[pch-path] = '\0';
+            checkCreateDir(temp);
+            //printf("%s\n", temp);
+            pch = strstr(pch+1, delim);
+        }
+        free(temp);
+
+        int output_init_len = strlen(output);
+        FILE *file = fopen(filename, "r");
+        FILE *w_file = fopen(path, "w");
+        while(fgets(buf, BUF_SIZE, file)) {
+            if(strlen(buf)+strlen(output)-output_init_len<=128)
+                strcat(output, buf);
+            fprintf(w_file, "%s",buf);
+            memset(buf, 0, BUF_SIZE);
+        }
+        send(handler, output, strlen(output)+1, 0);
+        fclose(file);
+        fclose(w_file);
+    } else { //requested path is a valid directory
+        char buffer[BUF_SIZE] = "Content-Type: directory\r\nServer: httpserver/1.x\r\n\r\n";
+        int len = strlen(output) + strlen(buffer);
+
+        char *output_temp = (char *)realloc(output, sizeof(char)*(len+1));
+        output = output_temp;
+
+        output_temp = malloc(sizeof(char)*(strlen(output)+1));
+        strcpy(output_temp, output);
+
+        sprintf(output, "%s%s", output_temp,buffer);
+        //printf("%s",output);
+        //send(handler, output, strlen(output)+1, 0);
+
+        DIR *d;
+        struct dirent *dir;
+        d = opendir(filename);
+        int count = 0;
+        if (d) {
+            while ((dir = readdir(d)) != NULL) {
+                if((strcmp(dir->d_name,".")==0) || (strcmp(dir->d_name,"..")==0))
+                    continue;
+                len = strlen(output)+strlen(dir->d_name);
+                char *output_temp = (char *)realloc(output, sizeof(char)*(len+3)); //for space, \n, and \0
+                output = output_temp;
+
+                output_temp = malloc(sizeof(char)*(strlen(output)+1));
+                strcpy(output_temp, output);
+
+                if(count == 0) {
+                    count++;
+                    sprintf(output, "%s%s", output_temp, dir->d_name);
+                } else
+                    sprintf(output, "%s %s", output_temp, dir->d_name);
+                //printf("%s\n", dir->d_name);
+                free(output_temp);
+            }
+        }
+        output[strlen(output)] = '\n';
+        send(handler, output, strlen(output)+1, 0);
+        closedir(d);
     }
-    fclose(file);
+    free(filename);
 }
 void error(char *msg)
 {
@@ -92,20 +278,40 @@ int bindListener(int portno)
     return sockfd;
 }
 
+//thread to create
+void* takeRequest()
+{
+    //printf("yeay1\n");
+    while(1) {
+        //printf("");
+        fflush(stdout);
+        if(reqQueue.count>0) {
+            //printf("yeay2\n");
+            pthread_mutex_lock(&lock_acc);
+            int handler = popRegQueue();
+            pthread_mutex_unlock(&lock_acc);
+            pthread_mutex_lock(&lock_proc);
+            resolve(handler);
+            close(handler);
+            pthread_mutex_unlock(&lock_proc);
+        }
+    }
+}
 
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        fprintf(stderr, "USAGE: ./httpserver <port>\n");
+    if (argc != 7) {
+        fprintf(stderr, "USAGE: ./server -r root -p <port> -n <thread_number>\n");
         return 1;
     }
 
+    root = malloc(sizeof(char)*(strlen(argv[2])+1));
+    strcpy(root, argv[2]);
     // // bind a listener
-    int server = bindListener(atoi(argv[1]));
-    // int server = bindListener(getAddrInfo(argv[1]));
+    int server = bindListener(atoi(argv[4]));
     if (server < 0) {
-        fprintf(stderr, "[main:72:bindListener] Failed to bind at port %s\n", argv[1]);
+        fprintf(stderr, "[main:72:bindListener] Failed to bind at port %s\n", argv[4]);
         return 2;
     }
 
@@ -114,6 +320,30 @@ int main(int argc, char **argv)
         return 3;
     }
 
+    //for thread pool
+    if (pthread_mutex_init(&lock_acc, NULL) != 0) {
+        printf("\n mutex init failed\n");
+        return 1;
+    }
+    if (pthread_mutex_init(&lock_proc, NULL) != 0) {
+        printf("\n mutex init failed\n");
+        return 1;
+    }
+    reqQueue.count = 0;
+    int threadnum = atoi(argv[6]);
+    int i;
+    for(i = 0; i < threadnum; i++) {
+        pthread_t tid;
+        int err;
+        err = pthread_create(&tid, NULL, takeRequest, NULL);
+        if (err != 0)
+            printf("\ncan't create thread :[%s]", strerror(err));
+        // else
+        // {
+        //     printf("\nThread created successfully\n");
+        //     pthread_join(tid, NULL);
+        // }
+    }
     // accept incoming requests asynchronously
     int handler;
     socklen_t size;
@@ -125,8 +355,13 @@ int main(int argc, char **argv)
             perror("[main:82:accept]");
             continue;
         }
-        resolve(handler);
-        close(handler);
+        //printf("request accepted; handler = %d\n",handler);
+        pthread_mutex_lock(&lock_acc);
+        pushRegQueue(handler);
+        //printf("%d\n",reqQueue.count);
+        pthread_mutex_unlock(&lock_acc);
+        //resolve(handler);
+        //close(handler);
     }
 
     close(server);
