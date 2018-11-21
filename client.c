@@ -1,36 +1,5 @@
 #include "client.h"
 
-/* Generic */
-#include <errno.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <strings.h>
-#include <unistd.h>
-#include <dirent.h>
-#include <pthread.h>
-
-/* Network */
-#include <netdb.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
-
-#define BUF_SIZE 256
-#define RCV_SIZE 2048
-#define FILE_PATH 0
-#define FOLDER_PATH 1
-
-typedef struct {
-    int clientfd;
-    char *path;
-    char *portno;
-    char *hostname;
-} Req_info;
-
 void checkCreateDir(char* name)
 {
     struct stat st = {0};
@@ -68,7 +37,7 @@ char* createDirInPath(char *path, int path_type) //e.g. secfolder/json.db -> out
     return output_path;
 }
 
-int establishConnection(int portno, char* hostname);
+//int establishConnection(int portno, char* hostname);
 // Send GET request
 void *GET(void *req_info_void)
 {

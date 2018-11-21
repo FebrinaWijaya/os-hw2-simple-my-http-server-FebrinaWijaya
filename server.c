@@ -1,42 +1,9 @@
 #include "server.h"
 
-/* Generic */
-#include <errno.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <strings.h>
-#include <unistd.h>
-#include <dirent.h>
-#include <pthread.h>
 
-/* Network */
-#include <netdb.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
-
-/* Others */
-#include "status.h"
-
-#define BUF_SIZE 128
-
-extern int errno;
 pthread_mutex_t lock_acc, lock_proc;
 
-//for request queue
-typedef struct node {
-    int handler;
-    struct node *next;
-} Node;
-typedef struct queue {
-    int count;
-    Node *head;
-    Node *tail;
-} Queue;
+
 Queue reqQueue;
 
 char* root;
