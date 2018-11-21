@@ -189,40 +189,44 @@ int main(int argc, char **argv)
         fprintf(stderr, "USAGE: ./client -t <request path> -h localhost -p <port>\n");
         return 1;
     }
-
+    char* port_str = argv[6];
+    int port = atoi(argv[6]);
+    char* host = argv[4];
+    char* path = argv[2];
+    int i;
+    for(i=1; i<=5; i+=2) {
+        if(strcmp(argv[i],"-t")==0) {
+            int index = i + 1;
+            path = malloc(sizeof(char)*(strlen(argv[index])+1));
+            strcpy(path, argv[index]);
+        } else if(strcmp(argv[i],"-h")==0) {
+            int index = i + 1;
+            host = malloc(sizeof(char)*(strlen(argv[index])+1));
+            strcpy(host, argv[index]);
+        } else if(strcmp(argv[i],"-p")==0) {
+            int index = i + 1;
+            port = atoi(argv[index]);
+            port_str = malloc(sizeof(char)*(strlen(argv[index])+1));
+            strcpy(port_str, argv[index]);
+        } else {
+            printf("Unknown parameter %s\n",argv[i]);
+            return 0;
+        }
+    }
     // Establish connection with <hostname>:<port>
     //clientfd = establishConnection(getHostInfo(argv[1], argv[2]));
-    clientfd = establishConnection(atoi(argv[6]), argv[4]);
+    clientfd = establishConnection(port, host);
     if (clientfd == -1) {
         fprintf(stderr,
-                "[main:73] Failed to connect to: %s:%s%s \n",
-                argv[4], argv[6], argv[2]);
+                "[main:73] Failed to connect to: %s:%d %s \n",
+                host, port, path);
+        free(port_str);
         return 3;
     }
 
     // Send GET request > stdout
-    Req_info info_to_send = {clientfd, argv[2], argv[6], argv[4]};
+    Req_info info_to_send = {clientfd, path, port_str, host};
     GET(&info_to_send);
-    // char *port = argv[6];
-    // while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
-    //     fputs(buf, stdout);
-    //     //request
-    //     //HTTP/1.x 200 OK\r\nContent-type: directory\r\nServer: httpserver/1.x\r\n\r\ncontent_1 .. content_n\n
-    //     char *content_type = strtok(buf, " ");
-    //     content_type = strtok(NULL, " ");
-    //     content_type = strtok(NULL, " ");
-    //     content_type = strtok(NULL, "\r");
-    //     printf("content type: %s\n", content_type);
-    //     if(strcmp(content_type, "directory")==0)
-    //     {
-    //         char *temp = strtok(NULL, " ");
-    //         temp = strtok(NULL, "\n");
-    //         temp = strtok(NULL, "\n");
-    //         temp = strtok(NULL, " ");
-    //         printf("1st content: %s\n", temp);
-    //     }
-    //     memset(buf, 0, BUF_SIZE);
-    // }
 
     close(clientfd);
     return 0;

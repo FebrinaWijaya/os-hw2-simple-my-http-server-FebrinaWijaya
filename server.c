@@ -255,13 +255,32 @@ int main(int argc, char **argv)
         fprintf(stderr, "USAGE: ./server -r root -p <port> -n <thread_number>\n");
         return 1;
     }
-
     root = malloc(sizeof(char)*(strlen(argv[2])+1));
     strcpy(root, argv[2]);
+    int threadnum = atoi(argv[6]);
+    int port = atoi(argv[4]);
+    int i;
+    for(i=1; i<=5; i+=2) {
+        if(strcmp(argv[i],"-r")==0) {
+            if(root!=NULL) free(root);
+            int index = i+1;
+            root = malloc(sizeof(char)*(strlen(argv[index])+1));
+            strcpy(root, argv[index]);
+        } else if(strcmp(argv[i],"-p")==0) {
+            int index = i+1;
+            port = atoi(argv[index]);
+        } else if(strcmp(argv[i],"-n")==0) {
+            int index = i+1;
+            threadnum = atoi(argv[index]);
+        } else {
+            printf("Unknown parameter %s\n",argv[i]);
+            return 0;
+        }
+    }
     // // bind a listener
-    int server = bindListener(atoi(argv[4]));
+    int server = bindListener(port);
     if (server < 0) {
-        fprintf(stderr, "[main:72:bindListener] Failed to bind at port %s\n", argv[4]);
+        fprintf(stderr, "[main:72:bindListener] Failed to bind at port %d\n", port);
         return 2;
     }
 
@@ -280,8 +299,6 @@ int main(int argc, char **argv)
         return 1;
     }
     reqQueue.count = 0;
-    int threadnum = atoi(argv[6]);
-    int i;
     for(i = 0; i < threadnum; i++) {
         pthread_t tid;
         int err;
