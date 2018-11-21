@@ -113,15 +113,6 @@ void resolve_failed(int handler, char *output)
     //printf("%s",output);
     send(handler, output, strlen(output)+1, 0);
 }
-void checkCreateDir(char* name)
-{
-    struct stat st = {0};
-
-    if (stat(name, &st) == -1) {
-        mkdir(name, 0750);
-        //printf("created the directory %s\n",name);
-    }
-}
 
 void resolve(int handler)
 {
@@ -176,40 +167,24 @@ void resolve(int handler)
         char buffer[BUF_SIZE];
         int len = sprintf(buffer, "Content-Type: %s\r\nServer: httpserver/1.x\r\n\r\n", extensions[i].mime_type);
         len += strlen(output);
-        char *output_temp = (char *)realloc(output, sizeof(char)*(len+128+1));
+        char *output_temp = (char *)realloc(output, sizeof(char)*(len+2048+1));
         output = output_temp;
         strcat(output, buffer);
 
-        strcpy(buffer, "output/");
-        char *temp = malloc(sizeof(char)*(strlen(buffer)+strlen(filename)+1));
-        char *path = malloc(sizeof(char)*(strlen(buffer)+strlen(filename)+1));
-        sprintf(path,"%s%s", buffer, filename);
-        //printf("%s\n",path);
-
-        char *delim = "/";
-
-        char *pch = strstr(path, delim);
-        while(pch!=NULL) {
-            memcpy(temp,path,pch-path+1);
-            temp[pch-path] = '\0';
-            checkCreateDir(temp);
-            //printf("%s\n", temp);
-            pch = strstr(pch+1, delim);
-        }
-        free(temp);
-
-        int output_init_len = strlen(output);
+        //int output_init_len = strlen(output);
         FILE *file = fopen(filename, "r");
-        FILE *w_file = fopen(path, "w");
+        //FILE *w_file = fopen(path, "w");
         while(fgets(buf, BUF_SIZE, file)) {
-            if(strlen(buf)+strlen(output)-output_init_len<=128)
-                strcat(output, buf);
-            fprintf(w_file, "%s",buf);
+            //if(strlen(buf)+strlen(output)-output_init_len<=128)
+            strcat(output, buf);
+            //fprintf(w_file, "%s",buf);
             memset(buf, 0, BUF_SIZE);
         }
         send(handler, output, strlen(output)+1, 0);
+        //printf("%s\n==============\n",output);
         fclose(file);
-        fclose(w_file);
+        free(output);
+        //fclose(w_file);
     } else { //requested path is a valid directory
         char buffer[BUF_SIZE] = "Content-Type: directory\r\nServer: httpserver/1.x\r\n\r\n";
         int len = strlen(output) + strlen(buffer);
@@ -217,10 +192,11 @@ void resolve(int handler)
         char *output_temp = (char *)realloc(output, sizeof(char)*(len+1));
         output = output_temp;
 
-        output_temp = malloc(sizeof(char)*(strlen(output)+1));
+        output_temp = malloc(sizeof(char)*(len+1));
         strcpy(output_temp, output);
 
-        sprintf(output, "%s%s", output_temp,buffer);
+        strcat(output,buffer);
+        //sprintf(output, "%s%s", output_temp,buffer);
         //printf("%s",output);
         //send(handler, output, strlen(output)+1, 0);
 
@@ -248,9 +224,13 @@ void resolve(int handler)
                 free(output_temp);
             }
         }
-        output[strlen(output)] = '\n';
+        len = strlen(output);
+        output[len] = '\n';
+        output[len+1] = '\0';
+        //printf("Dir:%s\n\n%s\n==============\n",filename,output);
         send(handler, output, strlen(output)+1, 0);
         closedir(d);
+        free(output);
     }
     free(filename);
 }
@@ -349,6 +329,7 @@ int main(int argc, char **argv)
     socklen_t size;
     struct sockaddr_storage client;
     while (1) {
+
         size = sizeof(client);
         handler = accept(server, (struct sockaddr *)&client, &size);
         if (handler < 0) {
