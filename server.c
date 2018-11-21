@@ -46,7 +46,7 @@ char* header(int status)
     if (status == OK) {
         len = sprintf(header, "HTTP/1.x %d OK\r\n", status_code[OK]);
     } else if (status == BAD_REQUEST) {
-        len = sprintf(header, "HTTP/1.x %d BAD_REQUEST\r\n", status_code[OK]);
+        len = sprintf(header, "HTTP/1.x %d BAD_REQUEST\r\n", status_code[BAD_REQUEST]);
     } else if (status == NOT_FOUND) {
         len = sprintf(header, "HTTP/1.x %d NOT_FOUND\r\n", status_code[NOT_FOUND]);
     } else if (status == METHOD_NOT_ALLOWED) {
@@ -90,11 +90,7 @@ void resolve(int handler)
 
     recv(handler, buf, BUF_SIZE, 0);
     method = strtok(buf, " ");
-    if (strcmp(method, "GET") != 0) {
-        output = header(METHOD_NOT_ALLOWED);
-        resolve_failed(handler, output);
-        return;
-    }
+
     filename_temp = strtok(NULL, " ");
     filename = malloc(sizeof(char)*(strlen(root)+strlen(filename_temp)+1));
 
@@ -105,16 +101,16 @@ void resolve(int handler)
         free(filename);
         return;
     }
-    //filename = (char *)realloc(filename, sizeof(char)*(strlen(root)+strlen(filename)+1));
-    sprintf(filename,"%s%s",root,filename_temp);
-    //printf("%s\n",filename);
-
-    if (access(filename, F_OK) != 0) {
-        output = header(NOT_FOUND);
+    if (strcmp(method, "GET") != 0) {
+        output = header(METHOD_NOT_ALLOWED);
         resolve_failed(handler, output);
         free(filename);
         return;
     }
+    //filename = (char *)realloc(filename, sizeof(char)*(strlen(root)+strlen(filename)+1));
+    sprintf(filename,"%s%s",root,filename_temp);
+    //printf("%s\n",filename);
+
     char *extn = get_extn(filename);
     int i=0;
     while(extensions[i].ext != 0 && strcmp(extensions[i].ext, extn)!=0)
@@ -122,6 +118,13 @@ void resolve(int handler)
     if(extensions[i].ext == 0 && strcmp(extn, "dir")!=0) {
         //file extension is not supported and the requested path is not a directory
         output = header(UNSUPPORT_MEDIA_TYPE);
+        resolve_failed(handler, output);
+        free(filename);
+        return;
+    }
+
+    if (access(filename, F_OK) != 0) {
+        output = header(NOT_FOUND);
         resolve_failed(handler, output);
         free(filename);
         return;
@@ -315,4 +318,3 @@ int main(int argc, char **argv)
     close(server);
     return 0;
 }
-
